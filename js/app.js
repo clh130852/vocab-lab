@@ -6,6 +6,7 @@
   var el = U.el;
 
   var VIEWS = ['dashboard', 'words', 'cards', 'reading', 'tests', 'archive', 'settings', 'help'];
+  var BUILD = 'v7';              // 与 sw.js 里的 CACHE 版本保持一致
   var TITLES = {
     dashboard: '总览', words: '生词库', cards: '卡片记忆', reading: '文章阅读',
     tests: '生词检测', archive: '归档', settings: '设置与备份', help: '使用说明'
@@ -74,6 +75,47 @@
     var streakEl = document.getElementById('topStreak');
     if (dueEl) dueEl.textContent = String(due);
     if (streakEl) streakEl.textContent = String(VL.store.streak.current || 0);
+    renderProfileSelect();
+  }
+
+  /* ---------- 用户档案 ---------- */
+
+  function renderProfileSelect() {
+    var sel = document.getElementById('profileSelect');
+    if (!sel) return;
+    var cur = VL.store.activeProfile();
+    U.mount(sel, VL.store.profiles().map(function (p) {
+      return el('option', { value: p.id, selected: p.id === cur.id }, p.name);
+    }).concat([el('option', { value: '__new' }, '＋ 新建用户…')]));
+    sel.value = cur.id;
+  }
+
+  function newProfilePrompt() {
+    U.formModal({
+      title: '新建用户',
+      fields: [
+        { name: 'name', label: '名字', required: true, placeholder: '例如：小明 / 姐姐', value: '' },
+        { name: 'note', label: '备注（可选）', placeholder: '例如：初二 / 中考班' }
+      ],
+      okText: '创建并切换'
+    }).then(function (v) {
+      if (!v) { renderProfileSelect(); return; }
+      var p = VL.store.addProfile(v.name, v.note);
+      VL.store.setProfile(p.id);
+      VL.cards.leave(); VL.reading.leave(); VL.test.leave();
+      applyTheme();
+      refreshAll();
+      U.toast('已新建并切换到「' + p.name + '」，这个用户的数据是独立的', 'ok', 4200);
+    });
+  }
+
+  function switchProfile(id) {
+    if (!id || id === VL.store.activeProfile().id) return;
+    if (!VL.store.setProfile(id)) return;
+    VL.cards.leave(); VL.reading.leave(); VL.test.leave();
+    applyTheme();
+    refreshAll();
+    U.toast('已切换到「' + VL.store.activeProfile().name + '」', 'ok');
   }
 
   /* ---------- 路由 ---------- */
@@ -209,6 +251,12 @@
     var theme = document.getElementById('themeBtn');
     if (theme) theme.addEventListener('click', cycleTheme);
 
+    var profSel = document.getElementById('profileSelect');
+    if (profSel) profSel.addEventListener('change', function (e) {
+      if (e.target.value === '__new') { newProfilePrompt(); return; }
+      switchProfile(e.target.value);
+    });
+
     var search = document.getElementById('globalSearch');
     var box = document.getElementById('searchResults');
     if (search) {
@@ -270,6 +318,17 @@
     VL.store.load();
     applyTheme();
     bind();
+    var tag = document.getElementById('buildTag');
+    if (tag) tag.textContent = '版本 ' + BUILD + '（多用户 · 完整词表 · 拍照识词）';
+    // 检查服务器上是不是有更新版本（避免一直看着浏览器缓存的旧页面）
+    fetch('sw.js', { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (t) {
+      var m = t.match(/CACHE\s*=\s*'([^']+)'/);
+      if (!m) return;
+      if (m[1] !== 'vocab-lab-' + BUILD) {
+        U.toast('检测到新版本，正在自动刷新…', 'ok', 3000);
+        setTimeout(function () { location.reload(); }, 1200);
+      }
+    }).catch(function () {});
     var start = (location.hash || '').replace('#', '');
     if (VIEWS.indexOf(start) < 0) start = 'dashboard';
     go(start);
@@ -284,9 +343,12 @@
 
   VL.app = {
     go: go,
-    refreshAll: refreshAll,
-    renderSidebar: renderSidebar,
-    renderTopStats: renderTopStats,
+  refreshAll: refreshAll,
+  renderSidebar: renderSidebar,
+  renderTopStats: renderTopStats,
+  renderProfileSelect: renderProfileSelect,
+  switchProfile: switchProfile,
+  newProfilePrompt: newProfilePrompt,
     applyTheme: applyTheme,
     cycleTheme: cycleTheme,
     get current() { return current; }
