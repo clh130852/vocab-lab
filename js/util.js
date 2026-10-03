@@ -278,7 +278,8 @@
           var values = collect();
           var missing = (o.fields || []).filter(function (f) { return f.required && !values[f.name]; });
           if (missing.length) { toast('请填写：' + missing.map(function (f) { return f.label || f.name; }).join('、'), 'warn'); return; }
-          closeModal(); resolve(values);
+          resolve(values);
+          closeModal();
         }
       }, o.okText || '确定');
       openModal({ title: o.title || '编辑', size: o.size || 'narrow', body: body, foot: [el('button', { class: 'btn', type: 'button', onclick: function () { closeModal(); resolve(null); } }, '取消'), ok], onClose: function () { resolve(null); } });
