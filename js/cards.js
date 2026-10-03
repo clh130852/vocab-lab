@@ -176,13 +176,7 @@
         return el('option', { value: b.id, selected: rangeCfg.source === b.id }, b.name + '（' + b.words.length + ' 词）');
       })));
     }
-    var gradeOptions = [];
-    VL.wordlists.grouped().forEach(function (g) {
-      g.sources.forEach(function (s) {
-        gradeOptions.push(el('option', { value: s.id, selected: rangeCfg.source === s.id }, s.name + '（' + s.count + ' 词）'));
-      });
-    });
-    sourceOptions.push(el('optgroup', { label: '人教版教材 / 考纲（会先加入当前词库）' }, gradeOptions));
+    // 不再列出内置的「人教版教材 / 考纲」核心词表（完整词表请用「📚 导入词表」）
 
     var builtin = isBuiltinList(rangeCfg.source);
     var count = builtin
@@ -346,7 +340,10 @@
     var head = [
       front,
       reversed ? null : (w.phonetic ? el('div', { class: 'fc-phon', text: '/' + String(w.phonetic).replace(/^\/|\/$/g, '') + '/' }) : null),
-      el('div', { class: 'fc-pos', text: (w.pos || '') + (w.tags && w.tags.length ? ' · ' + w.tags.map(function (t) { return VL.dict.TAG_LABELS[t] || t; }).slice(0, 3).join(' / ') : '') }),
+      el('div', { class: 'fc-pos', text: (w.pos || '') }),
+      (w.tags && w.tags.length)
+        ? el('div', { class: 'text-small text-muted', text: '标签：' + w.tags.map(function (t) { return VL.dict.TAG_LABELS[t] || t; }).slice(0, 3).join(' / ') + '（生成文章时按主题选词用）' })
+        : null,
       el('button', {
         class: 'btn btn-sm', type: 'button',
         onclick: function (e) { e.stopPropagation(); U.speak(w.term); }
