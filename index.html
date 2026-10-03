@@ -25,6 +25,8 @@
     </span>
   </div>
 
+  <select class="select profile-select" id="profileSelect" aria-label="当前用户"></select>
+
   <div class="topbar-spacer"></div>
 
   <div class="topstat" id="topStatDue" data-tooltip="今天到期需要复习的生词数量">
@@ -72,6 +74,7 @@
 
     <div class="sidebar-foot text-small">
       数据只保存在本机浏览器。<a href="#" id="quickExport">导出备份</a>
+      <div class="text-muted" id="buildTag">版本 …</div>
     </div>
   </aside>
 
@@ -114,6 +117,7 @@
 <script src="js/reading.js"></script>
 <script src="js/ailookup.js"></script>
 <script src="js/readers.js"></script>
+<script src="js/packs.js"></script>
 <script src="js/views.js"></script>
 <script src="js/app.js"></script>
 <script>
