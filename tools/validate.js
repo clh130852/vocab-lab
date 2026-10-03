@@ -201,6 +201,31 @@ else ok('新词：创建后立即进入待复习队列');
 
 /* ---------- 6.5 查词链：内置词库 → 你自己录过的生词 ---------- */
 
+/* ---------- 6.4 多用户档案：数据必须完全独立 ---------- */
+
+var pA = VL.store.activeProfile();
+var countA = VL.store.bookWords(VL.store.activeBookId()).length;
+var pB = VL.store.addProfile('小明', '初二');
+VL.store.setProfile(pB.id);
+var emptyB = VL.store.bookWords(VL.store.activeBookId()).length;
+VL.store.addWord(VL.store.activeBookId(), { term: 'zebra', meaning: '斑马' });
+var filledB = VL.store.bookWords(VL.store.activeBookId()).length;
+VL.store.setProfile(pA.id);
+var backA = VL.store.bookWords(VL.store.activeBookId()).length;
+if (emptyB !== 0) fail('新建用户的词库不是空的（' + emptyB + ' 条）');
+else if (filledB !== 1) fail('新用户添加生词失败');
+else if (backA !== countA) fail('切回原用户后数据变了：' + countA + ' → ' + backA);
+else ok('多用户档案：新用户从空开始，切换用户数据互不影响（A 保留 ' + countA + ' 条）');
+
+var backup2 = VL.store.exportAll();
+if (!backup2.profiles || backup2.profiles.length !== 2) fail('「导出全部备份」没有包含所有用户');
+else {
+  var imp = VL.store.importData(backup2);
+  if (!imp.ok) fail('导入多用户备份失败：' + imp.message);
+  else if (VL.store.profiles().length !== 4) fail('导入后用户数不对：' + VL.store.profiles().length);
+  else ok('多用户备份：导出/导入正常，重名自动改名（现有 ' + VL.store.profiles().length + ' 个档案）');
+}
+
 /* ---------- 6.2 文件读取：编码识别 + 表格转文本 ---------- */
 
 var gbk = new Uint8Array([0xC6, 0xBB, 0xB9, 0xFB]);   // GBK 编码的「苹果」
