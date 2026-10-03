@@ -1,5 +1,5 @@
 /* Service Worker：联网时取最新文件，断网时用缓存（离线可用） */
-var CACHE = 'vocab-lab-v5';
+var CACHE = 'vocab-lab-v7';
 var FILES = [
   './',
   './index.html',
@@ -17,6 +17,7 @@ var FILES = [
   './js/reading.js',
   './js/ailookup.js',
   './js/readers.js',
+  './js/packs.js',
   './js/views.js',
   './js/app.js'
 ];
