@@ -14,10 +14,10 @@
   ];
 
   var SCOPES = [
-    { id: 'due', label: '已到期的生词', tip: '按艾宾浩斯节点今天该复习的' },
-    { id: 'wrong', label: '易错词', tip: '答错过或忘记过的' },
-    { id: 'learning', label: '所有学习中的词', tip: '包含还没到期的' },
-    { id: 'all', label: '全部生词（含已掌握）', tip: '排除已归档的词' }
+    { id: 'due', label: '待复习', tip: '按艾宾浩斯节点今天该复习的（和「卡片记忆」里的「待复习」一致）' },
+    { id: 'wrong', label: '易错', tip: '答错过或忘记过的（和「卡片记忆」里的「易错」一致）' },
+    { id: 'learning', label: '全部学习中', tip: '包含还没到期的' },
+    { id: 'all', label: '全部（含已掌握）', tip: '排除已归档的词' }
   ];
 
   var SIZES = [{ id: 10, label: '10 题' }, { id: 20, label: '20 题' }, { id: 30, label: '30 题' }, { id: 0, label: '全部' }];
