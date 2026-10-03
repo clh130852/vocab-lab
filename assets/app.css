@@ -520,6 +520,10 @@ html[data-theme="dark"] .hero { background: linear-gradient(135deg, #12312e, var
   border-radius: 4px; padding: 0 3px; cursor: pointer; font-weight: 500;
   border-bottom: 1px dashed var(--primary);
 }
+.article .w { cursor: pointer; border-bottom: 1px dotted transparent; border-radius: 3px; }
+.article .w:hover, .article .w:focus-visible {
+  background: var(--surface-3); border-bottom-color: var(--border-strong); outline: none;
+}
 .article .tw.known { background: var(--green-soft); color: var(--green); border-bottom-color: var(--green); }
 .article .tw.inbook { background: var(--blue-soft); color: var(--blue); border-bottom-color: var(--blue); }
 .article .blank {
