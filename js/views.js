@@ -295,21 +295,33 @@
       el('select', {
         class: 'select', style: { width: 'auto' }, onchange: function (e) { ws.sort = e.target.value; refresh(); }
       }, SORTS.map(function (s) { return el('option', { value: s.id, selected: ws.sort === s.id }, s.label); })),
-      el('button', { class: 'btn btn-primary', type: 'button', onclick: function () { batchAddModal(book.id); } }, '＋ 批量添加'),
-      el('button', { class: 'btn', type: 'button', onclick: function () { batchAddModal(book.id); } }, '📷 拍照识词'),
-      el('button', { class: 'btn btn-ghost', type: 'button', onclick: function () { addWordModal(book.id); } }, '单个添加'),
-      el('button', { class: 'btn', type: 'button', onclick: function () { pickFromGradeModal(book.id); } }, '从教材/考纲选词'),
+      el('button', { class: 'btn btn-primary', type: 'button', onclick: function () { addChooser(book.id); } }, '＋ 添加生词'),
+      el('button', { class: 'btn', type: 'button', onclick: function () { importChooser(book.id); } }, '📚 导入词表'),
       noMeaning ? el('button', { class: 'btn', type: 'button', onclick: function () { fillMissingMeanings(book.id, refresh); } }, '补全 ' + noMeaning + ' 个释义') : null
     ]);
 
     var bulk = selCount ? el('div', { class: 'bulk-bar' }, [
-      el('strong', { text: '已选 ' + selCount + ' 个' }),
-      el('button', { class: 'btn btn-sm', type: 'button', onclick: function () { bulkAction('archive'); } }, '归档'),
+      el('strong', { text: '已勾选 ' + selCount + ' 个生词' }),
+      el('button', { class: 'btn btn-sm', type: 'button', onclick: function () { bulkAction('archive'); } }, '归档这些'),
       el('button', { class: 'btn btn-sm', type: 'button', onclick: function () { bulkAction('restore'); } }, '取消归档'),
-      el('button', { class: 'btn btn-sm', type: 'button', onclick: function () { bulkAction('move'); } }, '移动到其他词库'),
-      el('button', { class: 'btn btn-sm btn-danger', type: 'button', onclick: function () { bulkAction('delete'); } }, '删除'),
+      el('button', { class: 'btn btn-sm', type: 'button', onclick: function () { bulkAction('move'); } }, '移到其他词库'),
+      el('button', {
+        class: 'btn btn-sm btn-primary', type: 'button',
+        onclick: function () {
+          var picked = Object.keys(ws.selected).filter(function (k) { return ws.selected[k]; });
+          var terms = picked.map(function (id) {
+            var w = VL.store.findWordById(id, book.id);
+            return w ? w.term : null;
+          }).filter(Boolean);
+          if (!terms.length) return;
+          VL.reading.setOnlyWords(terms);
+          VL.app.go('reading');
+          U.toast('已带着勾选的 ' + terms.length + ' 个词进入「文章阅读」，点「本地生成」就行', 'ok', 5200);
+        }
+      }, '📖 用勾选的词生成文章'),
+      el('button', { class: 'btn btn-sm btn-danger', type: 'button', onclick: function () { bulkAction('delete'); } }, '删除勾选的 ' + selCount + ' 个'),
       el('div', { class: 'spacer' }),
-      el('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: function () { ws.selected = {}; refresh(); } }, '取消选择')
+      el('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: function () { ws.selected = {}; refresh(); } }, '取消勾选（只是取消选择，不删词）')
     ]) : null;
 
     var headRow = el('tr', null, [
@@ -376,7 +388,9 @@
     var table = el('div', { class: 'card' }, [
       el('div', { class: 'card-head' }, [
         el('h3', { text: book.name }),
-        el('span', { class: 'card-note', text: '共 ' + all.length + ' 个生词 · 当前筛选 ' + list.length + ' 个' + (noMeaning ? ' · ' + noMeaning + ' 个缺释义' : '') })
+        el('span', { class: 'card-note', text: '共 ' + all.length + ' 个生词 · 当前筛选 ' + list.length + ' 个' + (noMeaning ? ' · ' + noMeaning + ' 个缺释义' : '') }),
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn btn-sm btn-danger', type: 'button', onclick: function () { clearBook(book, all); } }, '🗑 一键清空这个词库')
       ]),
       list.length ? el('div', { class: 'table-wrap' }, [
         el('table', { class: 'tbl word-table' }, [
@@ -400,6 +414,7 @@
       el('div', { class: 'row-wrap mt' }, [
         el('button', { class: 'btn', type: 'button', onclick: function () { exportBookFile(book.id); } }, '导出这个词库'),
         el('button', { class: 'btn', type: 'button', onclick: function () { U.download(book.name + '-生词表.csv', VL.store.exportCSV(book.id), 'text/csv;charset=utf-8'); } }, '导出 CSV（含记忆数据）'),
+        el('button', { class: 'btn btn-danger', type: 'button', onclick: function () { clearBook(book, all); } }, '清空词库里的词'),
         el('button', {
           class: 'btn btn-danger', type: 'button',
           onclick: function () {
@@ -581,6 +596,56 @@
     ws.selected = {};
     VL.app.refreshAll();
     U.toast(kind === 'archive' ? '已归档 ' + ids.length + ' 个生词' : '已恢复 ' + ids.length + ' 个生词', 'ok');
+  }
+
+  // 一键清空某个词库里的所有生词（词库本身保留）
+  // 两个入口合并：加词（批量/拍照/单个）、导词表（完整/内置）
+  function choiceModal(title, intro, options) {
+    U.openModal({
+      title: title, size: 'narrow',
+      body: el('div', { class: 'stack' }, [
+        el('div', { class: 'callout', text: intro })
+      ].concat(options.map(function (o) {
+        return el('button', {
+          class: 'btn btn-block', type: 'button', style: { height: 'auto', padding: '12px 14px', justifyContent: 'flex-start' },
+          onclick: function () { U.closeModal(); o.run(); }
+        }, [
+          el('div', null, [
+            el('div', { text: o.title }),
+            el('div', { class: 'text-small text-muted', text: o.desc })
+          ])
+        ]);
+      }))),
+      foot: [el('button', { class: 'btn', type: 'button', onclick: U.closeModal }, '取消')]
+    });
+  }
+
+  function addChooser(bookId) {
+    choiceModal('添加生词', '选一种方式，都会存进「' + (VL.store.getBook(bookId) || {}).name + '」', [
+      { title: '📋 批量粘贴 / 上传文件', desc: '一行一个单词；也支持 Excel、Word、CSV、txt 文件，自动查中文', run: function () { batchAddModal(bookId); } },
+      { title: '📷 拍照识别', desc: '拍课本词汇页或单词表，自动识别入库', run: function () { batchAddModal(bookId); setTimeout(function () { var el2 = document.querySelector('#modalBody .card'); if (el2) el2.scrollIntoView(); }, 300); } },
+      { title: '✍️ 单个输入', desc: '一个词一个词地加，可以自己写释义和例句', run: function () { addWordModal(bookId); } }
+    ]);
+  }
+
+  function importChooser(bookId) {
+    VL.packs.openImportModal(bookId);
+  }
+
+  function clearBook(book, all) {
+    if (!all || !all.length) { U.toast('这个词库已经是空的', 'ok'); return; }
+    U.confirmBox({
+      title: '清空「' + book.name + '」里的所有生词？',
+      message: '将删除 ' + all.length + ' 个生词及其复习记录（词库本身保留）。建议先「导出这个词库」留个备份。',
+      okText: '清空', danger: true
+    }).then(function (ok) {
+      if (!ok) return;
+      var ids = all.map(function (w) { return w.id; });
+      VL.store.removeWords(ids, book.id);
+      ws.selected = {};
+      VL.app.refreshAll();
+      U.toast('已清空「' + book.name + '」的 ' + ids.length + ' 个生词', 'ok');
+    });
   }
 
   function removeOne(w, bookId) {
@@ -1081,6 +1146,70 @@
   // 兼容旧入口：批量导入 = 批量添加
   function importModal(bookId) { return batchAddModal(bookId); }
 
+  // 完整词表整册导入（并入选词弹窗）
+  function packSection(bookId, book) {
+    var sel = el('select', { class: 'select' }, [el('option', { value: '' }, '正在加载完整词表清单…')]);
+    var info = el('div', { class: 'hint' });
+    var btn = el('button', { class: 'btn btn-primary', type: 'button' }, '整册导入到这个词库');
+
+    function fill(items) {
+      var priority = ['中考', '高考', '七年级上', '七年级下', '八年级上', '八年级下', '九年级'];
+      items.sort(function (a, b) {
+        function score(it) {
+          for (var i = 0; i < priority.length; i++) if (it.name.indexOf(priority[i]) >= 0) return i;
+          return 90;
+        }
+        var d = score(a) - score(b);
+        return d !== 0 ? d : (b.count || 0) - (a.count || 0);
+      });
+      U.mount(sel, [el('option', { value: '' }, '请选择要整册导入的完整词表…')].concat(items.map(function (it, i) {
+        return el('option', { value: String(i) }, it.name + '（' + (it.count || '?') + ' 词）');
+      })));
+      sel._items = items;
+      U.mount(info, [el('span', { text: '共 ' + items.length + ' 个完整词表；选中后点右边按钮，一次把这册全部词导入。' })]);
+    }
+
+    btn.addEventListener('click', function () {
+      var it = (sel._items || [])[Number(sel.value)];
+      if (!it) { U.toast('请先在下拉框里选一个词表', 'warn'); return; }
+      btn.disabled = true;
+      btn.textContent = '下载中…';
+      VL.packs.download(it).then(function (entries) {
+        var r = VL.store.addWords(bookId || VL.store.activeBookId(), entries.map(function (e) {
+          return { term: e[0], pos: e[1], meaning: e[2], phonetic: String(e[3] || '').replace(/^\/|\/$/g, ''), source: 'pack' };
+        }));
+        VIP_refresh();
+        btn.textContent = '✓ 已导入 ' + r.added + ' 词';
+        U.toast('已把「' + it.name + '」的 ' + r.added + ' 个词加入「' + book.name + '」', 'ok', 5000);
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = '整册导入到这个词库';
+        U.toast(err.message, 'error', 6000);
+      });
+    });
+
+    function VIP_refresh() { if (VL.app && VL.app.refreshAll) VL.app.refreshAll(); }
+
+    VL.packs.catalog().then(function (list) {
+      var wanted = list.filter(function (it) {
+        return (it.category === '青少年英语' || it.category === '中国考试') && (it.count || 0) >= 100;
+      });
+      fill(VL.packs.PRESET.concat(wanted));
+    }).catch(function () {
+      fill(VL.packs.PRESET);
+      U.mount(info, [el('span', { class: 'text-red', text: '在线清单获取失败（需要联网），下面是默认的完整词表。' })]);
+    });
+
+    return el('div', { class: 'card card-pad-sm' }, [
+      el('div', { class: 'row-wrap' }, [
+        el('strong', { text: '📚 完整词表（整册导入）' }),
+        el('span', { class: 'text-small text-muted', text: '需要联网一次；导入后永久离线可用' })
+      ]),
+      el('div', { class: 'row-wrap mt' }, [el('div', { class: 'grow' }, [sel]), btn]),
+      el('div', { class: 'mt' }, [info])
+    ]);
+  }
+
   function pickFromGradeModal(bookId) {
     var groups = VL.wordlists.grouped();
     var flat = [];
@@ -1130,7 +1259,18 @@
       }));
 
     var body = el('div', { class: 'stack' }, [
-      el('div', { class: 'callout' }, '从人教版教材各册或中考/高考考纲词表里勾选单词，直接加入「' + book.name + '」。内置词库会同时补上音标、释义和例句。'),
+      el('div', { class: 'callout warn' }, [
+        el('strong', { text: '注意：这里是「内置核心词」（离线可用，各册/考纲合计约 1300 词），不是完整词表。' }),
+        el('div', { class: 'mt', text: '要完整词表（中考 2135 词 / 高考 3854 词 / 人教版各册完整），请用工具栏的「📚 导入完整词表」。' })
+      ]),
+      el('div', { class: 'row-wrap' }, [
+        el('button', {
+          class: 'btn btn-primary btn-sm', type: 'button',
+          onclick: function () { U.closeModal(); VL.packs.openImportModal(bookId || VL.store.activeBookId()); }
+        }, '📚 去导入完整词表'),
+        el('span', { class: 'text-small text-muted', text: '下面这部分是从人教版各册 / 中考 / 高考核心词里勾选，加进「' + book.name + '」。' })
+      ]),
+      packSection(bookId, book),
       el('div', { class: 'field' }, [el('label', { text: '选择词表' }), selector]),
       countHost, listHost
     ]);
@@ -1478,9 +1618,79 @@
         el('div', { class: 'callout mt' }, '配置好之后有两个用途：①「文章阅读」可以让 AI 写更自然的文章和题目；②查不到的单词可以「用 AI 查」，批量添加时也能一次补全几十个词的释义。浏览器直连需要服务端允许跨域（CORS）；不配置也完全不影响其他功能。')
       ]),
       el('div', { class: 'card mb' }, [
+        el('div', { class: 'card-head' }, [
+          el('h3', { text: '用户档案（多人分开记录）' }),
+          el('span', { class: 'card-note', text: '每个用户的生词库、复习、检测、文章完全独立' })
+        ]),
+        el('div', { class: 'table-wrap' }, [
+          el('table', { class: 'tbl' }, [
+            el('thead', null, [el('tr', null, [
+              el('th', { text: '用户' }), el('th', { text: '备注' }), el('th', { text: '创建时间' }), el('th', { class: 'act', text: '操作' })
+            ])]),
+            el('tbody', null, VL.store.profiles().map(function (p) {
+              var isCur = p.id === VL.store.activeProfile().id;
+              return el('tr', null, [
+                el('td', null, [el('strong', { text: p.name }), isCur ? el('span', { class: 'chip chip-green', style: { marginLeft: '6px' }, text: '当前' }) : null]),
+                el('td', { class: 'text-small text-muted', text: p.note || '' }),
+                el('td', { class: 'text-small text-muted', text: U.fmtDate(p.createdAt) }),
+                el('td', { class: 'act' }, [
+                  isCur ? null : el('button', { class: 'btn btn-sm', type: 'button', onclick: function () { VL.app.switchProfile(p.id); } }, '切换'),
+                  el('button', {
+                    class: 'btn btn-sm btn-ghost', type: 'button',
+                    onclick: function () {
+                      U.formModal({
+                        title: '重命名用户', size: 'narrow',
+                        fields: [
+                          { name: 'name', label: '名字', required: true, value: p.name },
+                          { name: 'note', label: '备注', value: p.note || '' }
+                        ],
+                        okText: '保存'
+                      }).then(function (v) {
+                        if (!v) return;
+                        VL.store.updateProfile(p.id, { name: v.name, note: v.note });
+                        VL.app.refreshAll();
+                        U.toast('已保存', 'ok');
+                      });
+                    }
+                  }, '重命名'),
+                  el('button', {
+                    class: 'btn btn-sm btn-ghost', type: 'button',
+                    onclick: function () {
+                      var data = VL.store.exportProfile(p.id);
+                      if (!data) return;
+                      U.download('VocabLab-' + p.name + '-' + U.dayKey() + '.json', JSON.stringify(data, null, 2), 'application/json');
+                    }
+                  }, '导出'),
+                  VL.store.profiles().length > 1 ? el('button', {
+                    class: 'btn btn-sm btn-ghost text-red', type: 'button',
+                    onclick: function () {
+                      U.confirmBox({
+                        title: '删除用户「' + p.name + '」？',
+                        message: '这个用户的生词库、复习记录、检测和文章都会被删除，无法撤销。',
+                        okText: '删除', danger: true
+                      }).then(function (ok) {
+                        if (!ok) return;
+                        VL.store.deleteProfile(p.id);
+                        VL.app.refreshAll();
+                        U.toast('已删除「' + p.name + '」', 'ok');
+                      });
+                    }
+                  }, '删除') : null
+                ])
+              ]);
+            }))
+          ])
+        ]),
+        el('div', { class: 'row-wrap mt' }, [
+          el('button', { class: 'btn btn-primary', type: 'button', onclick: function () { VL.app.newProfilePrompt(); } }, '＋ 新建用户'),
+          el('span', { class: 'text-small text-muted', text: '右上角下拉框也能随时切换用户。' })
+        ])
+      ]),
+      el('div', { class: 'card mb' }, [
         el('div', { class: 'card-head' }, [el('h3', { text: '数据与备份' }), el('span', { class: 'card-note', text: '所有数据都在这台电脑的浏览器里' })]),
         el('div', { class: 'row-wrap' }, [
           el('button', { class: 'btn btn-primary', type: 'button', onclick: function () { U.download('VocabLab-备份-' + U.dayKey() + '.json', JSON.stringify(VL.store.exportAll(), null, 2), 'application/json'); } }, '导出全部备份（JSON）'),
+          el('button', { class: 'btn', type: 'button', onclick: function () { U.download('VocabLab-' + VL.store.activeProfile().name + '-' + U.dayKey() + '.json', JSON.stringify(VL.store.exportProfile(), null, 2), 'application/json'); } }, '只导出当前用户'),
           el('button', { class: 'btn', type: 'button', onclick: function () { exportBookFile(VL.store.activeBookId()); } }, '只导出当前词库'),
           el('button', { class: 'btn', type: 'button', onclick: function () { U.download(VL.store.activeBook().name + '-生词表.csv', VL.store.exportCSV(), 'text/csv;charset=utf-8'); } }, '导出 CSV'),
           el('button', { class: 'btn', type: 'button', onclick: function () { batchAddModal(VL.store.activeBookId()); } }, '导入数据 / 批量添加'),
@@ -1500,7 +1710,7 @@
             }
           }, '清空所有数据')
         ]),
-        el('div', { class: 'callout warn mt' }, '换电脑、换浏览器或清理浏览数据之前，记得先导出备份。导入时如果词库重名，会自动加上「（导入）」。')
+        el('div', { class: 'callout warn mt' }, '「导出全部备份」会把所有用户一起打包；「只导出当前用户」只打包现在这个用户。导入时如果用户重名或词库重名，会自动加上「（导入）」，不会覆盖现有数据。换电脑、换浏览器或清理浏览数据之前，记得先导出备份。')
       ]),
       el('div', { class: 'card' }, [
         el('div', { class: 'card-head' }, [el('h3', { text: '外观' })]),
