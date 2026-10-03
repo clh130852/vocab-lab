@@ -146,6 +146,13 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .brand-text strong { font-size: .98rem; letter-spacing: .01em; }
 .brand-text small { color: var(--text-3); font-size: .72rem; }
 .topbar-spacer { flex: 1 1 auto; }
+.profile-select {
+  width: auto; max-width: 190px; padding: 5px 8px;
+  font-size: .85rem; border-radius: 999px; background: var(--surface-2);
+}
+@media (max-width: 720px) {
+  .profile-select { max-width: 120px; font-size: .8rem; }
+}
 .topstat {
   display: flex; align-items: baseline; gap: 5px;
   padding: 4px 10px; border-radius: 999px;
