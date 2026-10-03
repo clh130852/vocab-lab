@@ -1,0 +1,16 @@
+{
+  "name": "Vocab Lab · 英语生词积累与智能复习系统",
+  "short_name": "Vocab Lab",
+  "description": "生词库 + 艾宾浩斯卡片记忆 + 文章生成与阅读题 + 生词检测，完全离线可用。",
+  "lang": "zh-CN",
+  "start_url": "index.html",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f7f8",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
