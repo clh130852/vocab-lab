@@ -4,7 +4,9 @@
   var VL = (window.VL = window.VL || {});
   var U = VL.util;
 
-  var KEY = 'vocablab.state.v1';
+  var KEY = 'vocablab.state.v1';                    // 旧版单档案数据（用于迁移）
+  var IDX_KEY = 'vocablab.profiles.v1';             // 档案索引
+  var DATA_PREFIX = 'vocablab.state.v1.';           // 每个档案一份数据
   var COLORS = ['#0f766e', '#1d4ed8', '#b45309', '#6d28d9', '#15803d', '#b91c1c', '#0891b2', '#c2410c'];
 
   function defaults() {
@@ -32,6 +34,73 @@
   }
 
   var state = defaults();
+  var idx = { active: '', profiles: [] };
+
+  function readJSON(key) {
+    try { var raw = localStorage.getItem(key); return raw ? U.safeJSON(raw) : null; } catch (e) { return null; }
+  }
+  function writeJSON(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); }
+    catch (e) { U.toast('保存失败：浏览器存储空间可能已满，请先导出备份。', 'error', 6000); }
+  }
+
+  /* ---------- 用户档案 ---------- */
+
+  function loadIndex() {
+    var raw = readJSON(IDX_KEY);
+    if (raw && raw.profiles && raw.profiles.length) { idx = raw; return; }
+    // 第一次使用多档案：把原来的单份数据迁移成第一个档案
+    var legacy = readJSON(KEY);
+    var p = { id: U.uid('p'), name: '我的生词本', note: '默认档案', createdAt: Date.now() };
+    idx = { active: p.id, profiles: [p] };
+    if (legacy) writeJSON(DATA_PREFIX + p.id, legacy);
+    writeJSON(IDX_KEY, idx);
+  }
+
+  function profiles() { return idx.profiles; }
+  function activeProfile() {
+    for (var i = 0; i < idx.profiles.length; i++) if (idx.profiles[i].id === idx.active) return idx.profiles[i];
+    return idx.profiles[0];
+  }
+
+  function setProfile(id) {
+    if (!id || id === idx.active) return false;
+    var exists = idx.profiles.some(function (p) { return p.id === id; });
+    if (!exists) return false;
+    save(true);
+    idx.active = id;
+    load();
+    return true;
+  }
+
+  function addProfile(name, note) {
+    var p = { id: U.uid('p'), name: name || ('用户 ' + (idx.profiles.length + 1)), note: note || '', createdAt: Date.now() };
+    idx.profiles.push(p);
+    writeJSON(IDX_KEY, idx);
+    writeJSON(DATA_PREFIX + p.id, defaults());
+    return p;
+  }
+
+  function updateProfile(id, patch) {
+    var p = null;
+    idx.profiles.forEach(function (x) { if (x.id === id) p = x; });
+    if (!p) return null;
+    Object.assign(p, patch || {});
+    writeJSON(IDX_KEY, idx);
+    return p;
+  }
+
+  function deleteProfile(id) {
+    if (idx.profiles.length <= 1) return false;
+    var i = -1;
+    idx.profiles.forEach(function (p, n) { if (p.id === id) i = n; });
+    if (i < 0) return false;
+    idx.profiles.splice(i, 1);
+    try { localStorage.removeItem(DATA_PREFIX + id); } catch (e) {}
+    if (idx.active === id) { idx.active = idx.profiles[0].id; writeJSON(IDX_KEY, idx); load(); }
+    else writeJSON(IDX_KEY, idx);
+    return true;
+  }
 
   function ensureBookShape(b) {
     if (!b.id) b.id = U.uid('book');
@@ -51,9 +120,8 @@
   }
 
   function load() {
-    var raw = null;
-    try { raw = localStorage.getItem(KEY); } catch (e) { raw = null; }
-    var data = raw ? U.safeJSON(raw) : null;
+    if (!idx.profiles.length) loadIndex();
+    var data = readJSON(DATA_PREFIX + idx.active);
     state = data && typeof data === 'object' ? data : defaults();
     var d = defaults();
     Object.keys(d.settings).forEach(function (k) {
@@ -77,11 +145,8 @@
   function save(now) {
     function write() {
       saveTimer = null;
-      try {
-        localStorage.setItem(KEY, JSON.stringify(state));
-      } catch (e) {
-        U.toast('保存失败：浏览器存储空间可能已满，请先导出备份并清理数据。', 'error', 7000);
-      }
+      writeJSON(DATA_PREFIX + idx.active, state);
+      writeJSON(IDX_KEY, idx);
     }
     if (now) { if (saveTimer) clearTimeout(saveTimer); write(); return; }
     if (saveTimer) return;
@@ -412,14 +477,35 @@
   }
 
   function exportAll() {
+    var snapshots = idx.profiles.map(function (p) {
+      return {
+        name: p.name,
+        note: p.note,
+        state: p.id === idx.active ? state : (readJSON(DATA_PREFIX + p.id) || defaults())
+      };
+    });
     return {
-      app: 'Vocab Lab', kind: 'backup', version: 1,
+      app: 'Vocab Lab', kind: 'backup', version: 2,
       exportedAt: new Date().toISOString(),
+      profiles: snapshots,
+      // 兼容旧版读取：同时保留当前档案的平铺数据
       activeBookId: state.activeBookId,
       books: state.books,
       settings: state.settings,
       log: state.log,
       streak: state.streak
+    };
+  }
+
+  function exportProfile(profileId) {
+    var p = null;
+    idx.profiles.forEach(function (x) { if (x.id === (profileId || idx.active)) p = x; });
+    if (!p) return null;
+    var data = p.id === idx.active ? state : (readJSON(DATA_PREFIX + p.id) || defaults());
+    return {
+      app: 'Vocab Lab', kind: 'profile', version: 2,
+      exportedAt: new Date().toISOString(),
+      profile: { name: p.name, note: p.note, state: data }
     };
   }
 
@@ -440,13 +526,42 @@
     var data = typeof payload === 'string' ? U.safeJSON(payload) : payload;
     if (!data) return { ok: false, message: '不是有效的 JSON 数据' };
 
+    // 多档案备份（新版）：每个档案都会作为新用户导入，互不覆盖
+    if (data.kind === 'backup' && data.version >= 2 && Array.isArray(data.profiles)) {
+      var names = idx.profiles.map(function (p) { return p.name; });
+      var added = 0;
+      data.profiles.forEach(function (snap) {
+        var name = snap.name || '导入的档案';
+        if (names.indexOf(name) >= 0) name += '（导入）';
+        var p = addProfile(name, snap.note || '');
+        var st = snap.state || {};
+        st = ensureStateShape(st);
+        writeJSON(DATA_PREFIX + p.id, st);
+        names.push(name);
+        added += 1;
+      });
+      load();
+      return { ok: true, message: '已导入 ' + added + ' 个用户档案，可在右上角切换' };
+    }
+
+    // 单个档案
+    if (data.kind === 'profile' && data.profile) {
+      var nm = data.profile.name || '导入的档案';
+      var exist = idx.profiles.map(function (p) { return p.name; });
+      if (exist.indexOf(nm) >= 0) nm += '（导入）';
+      var prof = addProfile(nm, data.profile.note || '');
+      writeJSON(DATA_PREFIX + prof.id, ensureStateShape(data.profile.state || {}));
+      load();
+      return { ok: true, message: '已导入用户档案「' + nm + '」，可在右上角切换过去' };
+    }
+
     if (data.kind === 'backup' && Array.isArray(data.books)) {
       if (!data.books.length) return { ok: false, message: '备份里没有词库' };
-      var names = state.books.map(function (b) { return b.name; });
+      var names2 = state.books.map(function (b) { return b.name; });
       data.books.forEach(function (b) {
         var nb = ensureBookShape(JSON.parse(JSON.stringify(b)));
         nb.id = U.uid('book');
-        if (names.indexOf(nb.name) >= 0) nb.name = nb.name + '（导入）';
+        if (names2.indexOf(nb.name) >= 0) nb.name = nb.name + '（导入）';
         nb.words.forEach(function (w) { w.id = U.uid('w'); });
         nb.tests = []; nb.articles = [];
         state.books.push(nb);
@@ -472,6 +587,24 @@
     }
 
     return { ok: false, message: '无法识别的数据格式' };
+  }
+
+  // 把任意来源的状态补全成完整结构（导入旧备份时用）
+  function ensureStateShape(st) {
+    var d = defaults();
+    var out = Object.assign({}, d, st || {});
+    out.settings = Object.assign({}, d.settings, (st && st.settings) || {});
+    out.settings.ai = Object.assign({}, d.settings.ai, (st && st.settings && st.settings.ai) || {});
+    out.log = (st && st.log) || {};
+    out.streak = Object.assign({}, d.streak, (st && st.streak) || {});
+    out.books = ((st && st.books) || []).map(ensureBookShape);
+    if (!out.books.length) {
+      out.books = [ensureBookShape({ id: U.uid('book'), name: '我的生词库', desc: '', color: COLORS[0] })];
+    }
+    if (!out.activeBookId || !out.books.some(function (b) { return b.id === out.activeBookId; })) {
+      out.activeBookId = out.books[0].id;
+    }
+    return out;
   }
 
   /* ---------- 记录 ---------- */
@@ -556,6 +689,9 @@
     get streak() { return state.streak; },
     get log() { return state.log; },
     load: load, save: save, defaults: defaults, wipe: wipe,
+    profiles: profiles, activeProfile: activeProfile, setProfile: setProfile,
+    addProfile: addProfile, updateProfile: updateProfile, deleteProfile: deleteProfile,
+    exportProfile: exportProfile,
     books: books, getBook: getBook, activeBook: activeBook, activeBookId: activeBookId, setActiveBook: setActiveBook,
     addBook: addBook, updateBook: updateBook, deleteBook: deleteBook,
     makeWord: makeWord, addWord: addWord, addWords: addWords, updateWord: updateWord,
