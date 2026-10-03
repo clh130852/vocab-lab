@@ -19,8 +19,16 @@
     topic: 'auto',
     level: 2,
     questionCount: 6,
+    onlyWords: '',
     engine: 'auto'         // auto | local | ai
   };
+
+  function parseWordList(text) {
+    return String(text || '')
+      .split(/[\s,，;；、\n\r\t]+/)
+      .map(function (x) { return x.trim(); })
+      .filter(function (x) { return /^[A-Za-z][A-Za-z'’.\- ]*$/.test(x); });
+  }
 
   /* ---------- 本地生成 ---------- */
 
@@ -44,7 +52,12 @@
   function candidatePool(opt) {
     var sourceId = opt.sourceId;
     var pool = [];
-    if (sourceId === 'book' || !sourceId) {
+    if (sourceId && VL.store.getBook(sourceId)) {
+      // 直接选了某个生词库（例如导入的「人教版七年级上」「高考 3500」）
+      pool = VL.store.bookWords(sourceId).filter(function (w) { return w.status !== 'archived'; }).map(function (w) { return entryOf(w); });
+    } else if (sourceId === 'allbooks') {
+      pool = VL.store.allWords().map(function (w) { return entryOf(w); });
+    } else if (sourceId === 'book' || !sourceId) {
       pool = VL.store.bookWords(VL.store.activeBookId())
         .filter(function (w) { return w.status !== 'archived'; })
         .map(function (w) { return entryOf(w); });
@@ -74,7 +87,8 @@
   function fillSlots(template, opt) {
     var pool = candidatePool(opt);
     var split = preferNew(pool);
-    var primary = split.fresh.length >= 4 ? split.fresh : pool;
+    var specified = (opt.onlyWords || []).map(function (t) { return entryOf(t); }).filter(function (e) { return e && e.key; });
+    var primary = specified.length ? specified : (split.fresh.length >= 4 ? split.fresh : pool);
     var used = Object.create(null);
     var values = {};
     var warnings = [];
@@ -153,7 +167,22 @@
       return t.level <= (opt.level || 2);
     });
     if (!pool.length) pool = VL.templates.slice();
-    var template = pool[Math.floor(Math.random() * pool.length)];
+    var template;
+    var specifiedEntries = (opt.onlyWords || []).map(function (t) { return entryOf(t); }).filter(function (e) { return e && e.key; });
+    if (specifiedEntries.length) {
+      // 有指定的词：挑一个「能被这些词填得最多」的模板，保证指定词尽量都用上
+      var best = null, bestScore = -1;
+      pool.forEach(function (t) {
+        var score = 0;
+        Object.keys(t.slots || {}).forEach(function (name) {
+          if (specifiedEntries.some(function (e) { return matchSlot(e, t.slots[name]); })) score += 1;
+        });
+        if (score > bestScore) { bestScore = score; best = t; }
+      });
+      template = best || pool[0];
+    } else {
+      template = pool[Math.floor(Math.random() * pool.length)];
+    }
     var filled = fillSlots(template, opt);
     var resolve = filled.resolve;
 
@@ -233,6 +262,37 @@
     var want = opt.questionCount || 6;
     if (questions.length > want) questions = questions.slice(0, want);
 
+    // 兜底：用户指定的词如果没被模板用上，就用它们的例句组成一段「例句阅读」，保证全部出现
+    var requested = (opt.onlyWords || []);
+    if (requested.length) {
+      var usedKeys = {};
+      targetWords.forEach(function (w) { usedKeys[U.normTerm(w.term)] = 1; });
+      var extras = [];
+      requested.forEach(function (t) {
+        var k = U.normTerm(t);
+        if (usedKeys[k]) return;
+        var e = VL.dict.get(t);
+        var mine = VL.store.findWord(t);
+        var ex = (e && e.ex) || (mine && mine.example) || '';
+        var exCn = (e && e.exCn) || (mine && mine.exampleCn) || '';
+        var cn = (e && e.cn) || (mine && mine.meaning) || '';
+        if (usedKeys[k]) return;
+        usedKeys[k] = 1;
+        if (ex) {
+          paragraphs.push(ex);
+          extras.push({ term: t, meaning: cn, pos: (e && e.pos) || (mine && mine.pos) || '', example: ex, exampleCn: exCn, tags: [] });
+        } else {
+          // 没有例句的词：给一句简单的定义句，保证词也出现在文章里
+          paragraphs.push('The word "' + t + '" means ' + (cn || 'something') + '.');
+          extras.push({ term: t, meaning: cn, pos: '', example: '', exampleCn: '', tags: [] });
+        }
+      });
+      if (extras.length) {
+        targetWords = targetWords.concat(extras);
+        text = paragraphs.join(' ');
+      }
+    }
+
     return {
       mode: 'local',
       engineLabel: '本地生成（离线）',
@@ -247,6 +307,8 @@
       questions: questions,
       sourceLabel: sourceLabel(opt),
       warnings: filled.warnings,
+      requested: requested.slice(),
+      usedTerms: targetWords.map(function (w) { return U.normTerm(w.term); }),
       wordCount: countWords(text),
       at: Date.now()
     };
@@ -256,6 +318,9 @@
 
   function sourceLabel(opt) {
     if (opt.sourceId === 'book') return '我的生词库 · ' + (VL.store.activeBook() || {}).name;
+    if (opt.sourceId === 'allbooks') return '全部生词库';
+    var b = VL.store.getBook(opt.sourceId);
+    if (b) return b.name;
     if (opt.sourceId === 'mix') return '生词库 + ' + VL.wordlists.label(opt.gradeId || 'all');
     return VL.wordlists.label(opt.sourceId);
   }
@@ -377,6 +442,12 @@
   /* ---------- 生成入口 ---------- */
 
   function wordsForAI(opt) {
+    if (opt.onlyWords && opt.onlyWords.length) {
+      return opt.onlyWords.map(function (t) {
+        var e = VL.dict.get(t) || { term: t, cn: '' };
+        return { term: e.term || t, meaning: e.cn || '', pos: e.pos || '' };
+      }).slice(0, 30);
+    }
     var pool = candidatePool(opt);
     var split = preferNew(pool);
     var base = (split.fresh.length >= 8 ? split.fresh : pool);
@@ -391,7 +462,8 @@
       topic: cfg.topic,
       topicLabel: (VL.templates.filter(function (t) { return t.id === cfg.topic; })[0] || {}).topic,
       level: cfg.level,
-      questionCount: cfg.questionCount
+      questionCount: cfg.questionCount,
+      onlyWords: parseWordList(cfg.onlyWords)
     };
     var engine = forceEngine || cfg.engine;
     generating = true;
@@ -466,31 +538,27 @@
     var book = VL.store.activeBook();
     var bookWords = VL.store.bookWords(VL.store.activeBookId()).filter(function (w) { return w.status !== 'archived'; });
     var aiReady = !!VL.store.settings().ai.apiKey;
-    var groups = VL.wordlists.grouped();
+    var groups = VL.wordlists.grouped().map(function (g) {
+      return { kind: g.kind, label: g.label, sources: g.sources.filter(function (s) { return s.kind !== 'textbook' && s.kind !== 'syllabus'; }) };
+    }).filter(function (g) { return g.sources.length; });
+
+    // 词表来源 = 直接选一个生词库（含导入的人教版各册、中考、高考等），或当前词库 / 全部词库
+    var bookOptions = [el('option', { value: 'book', selected: cfg.sourceId === 'book' },
+      '当前词库：' + (VL.store.activeBook() || {}).name + '（' + bookWords.length + ' 词）')]
+      .concat(VL.store.books().length > 1 ? [el('optgroup', { label: '指定某个生词库 / 教材 / 考纲词库' }, VL.store.books().map(function (b) {
+        return el('option', { value: b.id, selected: cfg.sourceId === b.id }, b.name + '（' + b.words.length + ' 词）');
+      }))] : [])
+      .concat([el('option', { value: 'allbooks', selected: cfg.sourceId === 'allbooks' }, '全部词库（' + VL.store.allWords().length + ' 词）')]);
 
     var sourceRow = el('div', { class: 'field mb' }, [
       el('div', { class: 'label', text: '用哪里的单词写这篇文章？' }),
-      el('div', { class: 'seg' }, [
-        el('button', { class: 'chip chip-btn' + (cfg.sourceId === 'book' ? ' is-on' : ''), type: 'button', onclick: function () { cfg.sourceId = 'book'; renderConfig(); } }, '我的生词库（' + bookWords.length + ' 词）'),
-        el('button', { class: 'chip chip-btn' + (cfg.sourceId === 'mix' ? ' is-on' : ''), type: 'button', onclick: function () { cfg.sourceId = 'mix'; renderConfig(); } }, '生词库 + 教材词表')
-      ])
+      el('select', {
+        class: 'select', onchange: function (e) { cfg.sourceId = e.target.value; renderConfig(); }
+      }, bookOptions),
+      el('div', { class: 'hint', text: '想用「人教版七年级上」或「中考核心词」这些完整词表，先在「生词库 → 📚 导入词表」里导入，它们就会出现在这个下拉框里。' })
     ]);
 
-    var gradeRow = el('div', { class: 'field mb' }, [
-      el('div', { class: 'label', text: '教材 / 考纲词表（人教版最新教材核心词 · 中考高考考纲高频词）' }),
-      el('div', { class: 'seg' }, [
-        el('button', { class: 'chip chip-btn' + (cfg.sourceId === 'all' ? ' is-on' : ''), type: 'button', onclick: function () { cfg.sourceId = 'all'; renderConfig(); } }, '全部内置词库')
-      ].concat(groups.map(function (g) {
-        return el('span', { class: 'text-small text-muted', style: { alignSelf: 'center', marginLeft: '6px' }, text: g.label + '：' });
-      }).concat(groups.map(function (g) {
-        return el('div', { class: 'seg' }, g.sources.map(function (s) {
-          return el('button', {
-            class: 'chip chip-btn' + (cfg.sourceId === s.id ? ' is-on' : ''), type: 'button', 'data-tooltip': s.name + '（' + s.count + ' 词）',
-            onclick: function () { cfg.sourceId = s.id; renderConfig(); }
-          }, s.short);
-        }));
-      }))))
-    ]);
+    var gradeRow = null;
 
     var topicRow = el('div', { class: 'field mb' }, [
       el('div', { class: 'label', text: '主题' }),
@@ -522,6 +590,16 @@
     ]);
 
     var engineRow = el('div', { class: 'row-wrap mt' }, [
+      el('div', { class: 'field' }, [
+        el('label', { text: '指定要用到的单词（可选）' }),
+        el('input', {
+          class: 'input', type: 'text', value: cfg.onlyWords,
+          placeholder: '例如：apple banana protect ——留空就是自动挑词',
+          oninput: function (e) { cfg.onlyWords = e.target.value; }
+        }),
+        el('div', { class: 'hint', text: '填了就用这几个词写文章（本地生成会尽量全用上，语法约束下放不进去的会跳过；AI 生成会全部用上）。' })
+      ]),
+    ].concat([
       el('button', { class: 'btn btn-primary btn-lg', type: 'button', onclick: function () { generate('local'); } }, '本地生成（离线可用）'),
       el('button', {
         class: 'btn btn-lg', type: 'button', disabled: !aiReady,
@@ -531,7 +609,7 @@
         el('span', { class: 'ai-dot' + (aiReady ? ' on' : '') }),
         aiReady ? '已连接：' + VL.store.settings().ai.model : '未配置 AI 接口，仍可离线生成'
       ])
-    ]);
+    ]));
 
     var body = [
       el('div', { class: 'card mb' }, [
@@ -777,6 +855,17 @@
 
     U.mount(host, [
       head(),
+      (function () {
+        var req = art.requested || [];
+        if (!req.length) return null;
+        var used = req.filter(function (t) { return (art.usedTerms || []).indexOf(U.normTerm(t)) >= 0; });
+        var skipped = req.filter(function (t) { return used.indexOf(t) < 0; });
+        return el('div', { class: 'callout ' + (skipped.length ? 'warn' : ''), style: { marginBottom: '12px' } }, [
+          el('strong', { text: '你指定的 ' + req.length + ' 个词：用上 ' + used.length + ' 个' }),
+          el('div', { class: 'text-small mt', text: '✅ 用上：' + (used.join('、') || '（无）') }),
+          skipped.length ? el('div', { class: 'text-small', text: '⚠️ 没放进去：' + skipped.join('、') + '（本地模板只有 4-7 个空位，且要符合语法；想全部用上请点「换一篇」多生成几次，或配好 AI 接口用「AI 生成」）' }) : null
+        ]);
+      })(),
       el('div', { class: 'reader' }, [
         scoreHost,
         el('div', { class: 'article' }, [
@@ -847,6 +936,13 @@
       answers = {};
       submitted = false;
       if (host) renderArticle();
+    },
+    // 从「生词库」勾选一批词后直接带过来生成文章
+    setOnlyWords: function (terms) {
+      cfg.onlyWords = (terms || []).join(' ');
+      current = null;
+      answers = {};
+      submitted = false;
     },
     localGenerate: localGenerate,
     callAI: callAI,
