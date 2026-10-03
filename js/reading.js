@@ -659,30 +659,27 @@
   }
 
   function highlightParagraph(text, art) {
-    var terms = (art.targetWords || []).map(function (w) { return w.term; }).filter(Boolean);
-    if (!terms.length) return el('p', { text: text });
     var inBook = Object.create(null);
     VL.store.bookWords(VL.store.activeBookId()).forEach(function (w) { inBook[w.key] = 1; });
-    var sorted = terms.slice().sort(function (a, b) { return b.length - a.length; });
-    var pattern = sorted.map(function (t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|');
-    var re = new RegExp('\\b(' + pattern + ')(s|es|ed|d|ing)?\\b', 'gi');
-
     var p = el('p');
+    var re = /[A-Za-z][A-Za-z'’-]*/g;   // 文章里每个英文单词都可以点
     var last = 0, m;
     while ((m = re.exec(text)) !== null) {
       if (m.index > last) p.appendChild(document.createTextNode(text.slice(last, m.index)));
-      (function (matched, base) {
-        var lower = U.normTerm(base);
+      (function (matched) {
+        var lower = U.normTerm(matched);
         var info = (art.targetWords || []).filter(function (w) { return U.normTerm(w.term) === lower; })[0];
+        var isTarget = !!info;
+        var cls = 'w' + (isTarget ? ' tw' : '') + (isTarget && inBook[lower] ? ' known' : '');
         var span = el('span', {
-          class: 'tw' + (inBook[lower] ? ' known' : ''),
+          class: cls,
           role: 'button', tabindex: '0',
-          title: (info ? info.meaning : '') + (inBook[lower] ? '（已在生词库）' : '（未收录，点击可加入）'),
+          title: '点击查看「' + matched + '」的释义',
           onclick: function (e) { e.stopPropagation(); showWordPop(span, matched, info, lower); },
           onkeydown: function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showWordPop(span, matched, info, lower); } }
         }, matched);
         p.appendChild(span);
-      })(m[0], m[1]);
+      })(m[0]);
       last = m.index + m[0].length;
     }
     if (last < text.length) p.appendChild(document.createTextNode(text.slice(last)));
@@ -697,6 +694,7 @@
     var dict = VL.dict.get(key) || {};
     var inBook = VL.store.findWord(key);
     var meaning = (info && info.meaning) || dict.cn || '';
+    if (!meaning) meaning = '（词库里没有这个词，可以自己写一个释义）';
     var meaningInput = el('input', { class: 'input', value: meaning, placeholder: '写你自己的释义' });
     var meaningField = el('div', { class: 'field', style: { marginTop: '8px' } }, [
       el('div', { class: 'label', text: inBook ? '这个词的释义' : '释义（可以先改成自己的写法再收录）' }),
@@ -710,6 +708,25 @@
       meaningField,
       el('div', { class: 'qp-row' }, [
         el('button', { class: 'btn btn-sm', type: 'button', onclick: function () { U.speak(form); } }, '🔊 朗读'),
+        VL.ailookup.enabled() ? el('button', {
+          class: 'btn btn-sm js-ai-word', type: 'button',
+          onclick: function (e) {
+            e.stopPropagation();
+            var b = e.currentTarget;
+            b.disabled = true; b.textContent = 'AI 查询中…';
+            VL.ailookup.translate([key]).then(function (list) {
+              var w = list[0];
+              if (!w) { b.disabled = false; b.textContent = '🤖 用 AI 查'; U.toast('AI 没有返回这个词', 'warn'); return; }
+              if (w.meaning) { meaningInput.value = w.meaning; }
+              b.disabled = false;
+              b.textContent = '🤖 再查一次';
+              U.toast('AI 查到了：' + (w.pos ? w.pos + ' ' : '') + (w.meaning || ''), 'ok', 4200);
+            }).catch(function (err) {
+              b.disabled = false; b.textContent = '🤖 用 AI 查';
+              U.toast('AI 查词失败：' + err.message, 'error', 5000);
+            });
+          }
+        }, '🤖 用 AI 查') : null,
         el('button', {
           class: 'btn btn-sm btn-primary', type: 'button',
           onclick: function (e) {
