@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<title>Vocab Lab · 英语生词积累与智能复习系统</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="生词库、艾宾浩斯卡片记忆、AI 文章生成与生词检测，完全离线可用。">
+<meta name="theme-color" content="#0f766e">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+
+<a class="skip-link" href="#main">跳到主内容</a>
+
+<header class="topbar">
+  <button class="icon-btn only-narrow" id="drawerBtn" type="button" aria-label="展开侧栏" aria-expanded="false">☰</button>
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">V</span>
+    <span class="brand-text">
+      <strong>Vocab Lab</strong>
+      <small>生词积累 · 智能复习</small>
+    </span>
+  </div>
+
+  <div class="topbar-spacer"></div>
+
+  <div class="topstat" id="topStatDue" data-tooltip="今天到期需要复习的生词数量">
+    <span class="topstat-num tabular" id="topDueCount">0</span>
+    <span class="topstat-label">待复习</span>
+  </div>
+  <div class="topstat" id="topStatStreak" data-tooltip="连续学习天数">
+    <span class="topstat-num tabular" id="topStreak">0</span>
+    <span class="topstat-label">连续天数</span>
+  </div>
+
+  <div class="search-wrap">
+    <input class="search-input" id="globalSearch" type="search" placeholder="搜索生词 / 释义…" aria-label="搜索生词" autocomplete="off">
+    <div class="search-results" id="searchResults" hidden></div>
+  </div>
+
+  <button class="icon-btn" id="themeBtn" type="button" data-tooltip="切换主题" aria-label="切换主题">◐</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="导航">
+    <nav class="nav-group">
+      <div class="nav-title">学习</div>
+      <button class="nav-item" data-view="dashboard" type="button"><span class="nav-ic" aria-hidden="true">◎</span>总览</button>
+      <button class="nav-item" data-view="words" type="button"><span class="nav-ic" aria-hidden="true">≡</span>生词库</button>
+      <button class="nav-item" data-view="cards" type="button"><span class="nav-ic" aria-hidden="true">▤</span>卡片记忆<span class="nav-badge" id="navBadgeCards"></span></button>
+      <button class="nav-item" data-view="reading" type="button"><span class="nav-ic" aria-hidden="true">✎</span>文章阅读</button>
+      <button class="nav-item" data-view="tests" type="button"><span class="nav-ic" aria-hidden="true">✓</span>生词检测</button>
+      <button class="nav-item" data-view="archive" type="button"><span class="nav-ic" aria-hidden="true">▣</span>归档</button>
+    </nav>
+
+    <div class="nav-group books-group">
+      <div class="nav-title">
+        生词库
+        <button class="mini-btn" id="addBookBtn" type="button" data-tooltip="新建生词库" aria-label="新建生词库">＋</button>
+      </div>
+      <div id="bookList" class="book-list"></div>
+    </div>
+
+    <nav class="nav-group">
+      <div class="nav-title">系统</div>
+      <button class="nav-item" data-view="settings" type="button"><span class="nav-ic" aria-hidden="true">⚙</span>设置与备份</button>
+      <button class="nav-item" data-view="help" type="button"><span class="nav-ic" aria-hidden="true">?</span>使用说明</button>
+    </nav>
+
+    <div class="sidebar-foot text-small">
+      数据只保存在本机浏览器。<a href="#" id="quickExport">导出备份</a>
+    </div>
+  </aside>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <main class="main" id="main" tabindex="-1">
+    <section class="view" id="view-dashboard" aria-labelledby="v-dashboard"></section>
+    <section class="view" id="view-words" aria-labelledby="v-words" hidden></section>
+    <section class="view" id="view-cards" aria-labelledby="v-cards" hidden></section>
+    <section class="view" id="view-reading" aria-labelledby="v-reading" hidden></section>
+    <section class="view" id="view-tests" aria-labelledby="v-tests" hidden></section>
+    <section class="view" id="view-archive" aria-labelledby="v-archive" hidden></section>
+    <section class="view" id="view-settings" aria-labelledby="v-settings" hidden></section>
+    <section class="view" id="view-help" aria-labelledby="v-help" hidden></section>
+  </main>
+</div>
+
+<div class="toast-host" id="toastHost" aria-live="polite" aria-atomic="false"></div>
+
+<div class="modal-host" id="modalHost" hidden>
+  <div class="modal-backdrop" data-close="1"></div>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <header class="modal-head">
+      <h2 id="modalTitle">标题</h2>
+      <button class="icon-btn" type="button" data-close="1" aria-label="关闭">✕</button>
+    </header>
+    <div class="modal-body" id="modalBody"></div>
+    <footer class="modal-foot" id="modalFoot"></footer>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/dict.js"></script>
+<script src="js/wordlists.js"></script>
+<script src="js/templates.js"></script>
+<script src="js/srs.js"></script>
+<script src="js/store.js"></script>
+<script src="js/cards.js"></script>
+<script src="js/test.js"></script>
+<script src="js/reading.js"></script>
+<script src="js/ailookup.js"></script>
+<script src="js/readers.js"></script>
+<script src="js/views.js"></script>
+<script src="js/app.js"></script>
+<script>
+if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  });
+}
+</script>
+</body>
+</html>
